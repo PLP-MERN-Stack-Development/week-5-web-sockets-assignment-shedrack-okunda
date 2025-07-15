@@ -4,7 +4,8 @@ import { io } from "socket.io-client";
 import { useEffect, useState } from "react";
 
 // Socket.io connection URL
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || "http://localhost:5000";
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL;
+const ding = new Audio("/client/src/assets/ding.mp3");
 
 // Create socket instance
 export const socket = io(SOCKET_URL, {
@@ -21,6 +22,7 @@ export const useSocket = () => {
 	const [messages, setMessages] = useState([]);
 	const [users, setUsers] = useState([]);
 	const [typingUsers, setTypingUsers] = useState([]);
+	const [unread, setUnread] = useState(0);
 
 	// Connect to socket server
 	const connect = (username) => {
@@ -37,7 +39,9 @@ export const useSocket = () => {
 
 	// Send a message
 	const sendMessage = (message) => {
-		socket.emit("send_message", { message });
+		socket.emit("send_message", { message }, (response) => {
+			console.log("Message status:", response);
+		});
 	};
 
 	// Send a private message
@@ -48,6 +52,24 @@ export const useSocket = () => {
 	// Set typing status
 	const setTyping = (isTyping) => {
 		socket.emit("typing", isTyping);
+	};
+
+	const joinRoom = (room) => {
+		socket.emit("join_room", room);
+	};
+
+	const sendRoomMessage = (room, message) => {
+		socket.emit("send_room_message", { room, message });
+	};
+
+	const loadOlderMessages = async (page) => {
+		try {
+			const res = await fetch(`/api/messages?page=${page}&limit=20`);
+			const older = await res.json();
+			setMessages((prev) => [...older, ...prev]);
+		} catch (err) {
+			console.error("Failed to load messages:", err);
+		}
 	};
 
 	// Socket event listeners
@@ -62,14 +84,26 @@ export const useSocket = () => {
 		};
 
 		// Message events
-		const onReceiveMessage = (message) => {
-			setLastMessage(message);
-			setMessages((prev) => [...prev, message]);
+		const onReceiveMessage = (msg, username) => {
+			setLastMessage(msg);
+			setMessages((prev) => [...prev, msg]);
+
+			if (msg.sender !== username) {
+				ding.play();
+				showBrowserNotification(`${msg.sender}: ${msg.message}`);
+				setUnread((prev) => prev + 1);
+			}
 		};
 
-		const onPrivateMessage = (message) => {
-			setLastMessage(message);
-			setMessages((prev) => [...prev, message]);
+		const onPrivateMessage = (msg, username) => {
+			setLastMessage(msg);
+			setMessages((prev) => [...prev, msg]);
+
+			if (msg.sender !== username) {
+				ding.play();
+				showBrowserNotification(`${msg.sender} (DM): ${msg.message}`);
+				setUnread((prev) => prev + 1);
+			}
 		};
 
 		// User events
@@ -77,30 +111,43 @@ export const useSocket = () => {
 			setUsers(userList);
 		};
 
+		const showBrowserNotification = (text) => {
+			if (document.visibilityState === "visible") return;
+
+			if (
+				"Notification" in window &&
+				Notification.permission === "granted"
+			) {
+				new Notification("Chat App", { body: text });
+			}
+		};
+
 		const onUserJoined = (user) => {
-			// You could add a system message here
+			const message = `${user.username} joined the chat`;
 			setMessages((prev) => [
 				...prev,
 				{
 					id: Date.now(),
 					system: true,
-					message: `${user.username} joined the chat`,
+					message,
 					timestamp: new Date().toISOString(),
 				},
 			]);
+			showBrowserNotification(message);
 		};
 
 		const onUserLeft = (user) => {
-			// You could add a system message here
+			const message = `${user.username} left the chat`;
 			setMessages((prev) => [
 				...prev,
 				{
 					id: Date.now(),
 					system: true,
-					message: `${user.username} left the chat`,
+					message,
 					timestamp: new Date().toISOString(),
 				},
 			]);
+			showBrowserNotification(message);
 		};
 
 		// Typing events
@@ -143,6 +190,11 @@ export const useSocket = () => {
 		sendMessage,
 		sendPrivateMessage,
 		setTyping,
+		joinRoom,
+		sendRoomMessage,
+		unread,
+		setUnread,
+		loadOlderMessages,
 	};
 };
 
