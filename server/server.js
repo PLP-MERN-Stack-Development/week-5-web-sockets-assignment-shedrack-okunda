@@ -1,5 +1,3 @@
-// server.js - Main server file for Socket.io chat application
-
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
@@ -106,12 +104,15 @@ io.on("connection", (socket) => {
 	// Send message to a specific room
 	socket.on("send_room_message", ({ room, message }) => {
 		const msg = {
+			...message,
 			id: Date.now(),
 			sender: users[socket.id]?.username || "Anonymous",
-			message,
+			senderId: socket.id,
 			timestamp: new Date().toISOString(),
 			room,
 		};
+
+		messages.push(msg);
 
 		io.to(room).emit("receive_room_message", msg);
 	});
